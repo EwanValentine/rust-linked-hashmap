@@ -97,6 +97,14 @@ where
         (hasher.finish() % self.buckets.len() as u64) as usize
     }
 
+    pub fn len(&self) -> usize {
+        self.items
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.items == 0
+    } 
+
     pub fn get(&self, key: &K) -> Option<&V> {
         self.buckets[self.bucket(key)]
           .iter()
@@ -111,6 +119,8 @@ where
         // The ? operator with an Option return type, returns a None type immediately if false,
         // whereas with a Result return type, it returns an Err type.
         let i = bucket.iter().position(|&(ref ekey, _)| ekey == key)?;
+
+        self.items -= 1;
 
         // Swap remove, the following case vec![a, b, c, d, e] swap_remove(a, e), would swap,
         // a and e in place, which is more efficient than removing a, then adding the new value
@@ -128,9 +138,15 @@ mod tests {
     #[test]
     fn insert() {
         let mut map = HashMap::new();
+        assert_eq!(map.len(), 0);
+        assert!(map.is_empty());
         map.insert("testing", 123);
+        assert!(!map.is_empty());
+        assert_eq!(map.len(), 1);
         assert_eq!(map.get(&"testing"), Some(&123));
         assert_eq!(map.remove(&"testing"), Some(123));
+        assert_eq!(map.len(), 0);
+        assert!(map.is_empty());
         assert_eq!(map.get(&"testing"), None);
     }
 }
