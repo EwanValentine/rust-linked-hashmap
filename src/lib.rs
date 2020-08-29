@@ -103,6 +103,22 @@ where
           .find(|&(ref ekey, _)| ekey == key)
           .map(|&(_, ref v)| v)
     }
+
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        let bucket = self.bucket(key);
+        let bucket = &mut self.buckets[bucket];
+
+        // The ? operator with an Option return type, returns a None type immediately if false,
+        // whereas with a Result return type, it returns an Err type.
+        let i = bucket.iter().position(|&(ref ekey, _)| ekey == key)?;
+
+        // Swap remove, the following case vec![a, b, c, d, e] swap_remove(a, e), would swap,
+        // a and e in place, which is more efficient than removing a, then adding the new value
+        // onto the end of the vector. Which means you'd end up with vec![e, b, c] etc, which
+        // is fine if you do not need your vec to be ordered. Our buckets are not ordered here,
+        // so this is fine in this case.
+        Some(bucket.swap_remove(i).1)
+    }
 }
 
 #[cfg(test)]
@@ -114,5 +130,7 @@ mod tests {
         let mut map = HashMap::new();
         map.insert("testing", 123);
         assert_eq!(map.get(&"testing"), Some(&123));
+        assert_eq!(map.remove(&"testing"), Some(123));
+        assert_eq!(map.get(&"testing"), None);
     }
 }
