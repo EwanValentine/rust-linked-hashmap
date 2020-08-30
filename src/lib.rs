@@ -232,8 +232,8 @@ mod tests {
         map.insert("d", 12334);
         map.insert("e", 12345);
 
-        for (&key, &value) in &map {
-            match key {
+        for (&k, &v) in &map {
+            match k {
                 "a" => assert_eq!(v, 123),
                 "b" => assert_eq!(v, 1231),
                 "c" => assert_eq!(v, 1232),
