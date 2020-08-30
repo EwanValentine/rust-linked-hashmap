@@ -1,6 +1,8 @@
 use std::mem;
+use std::borrow::Borrow;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+
 
 const INITIAL_NBUCKETS: usize = 1;
 
@@ -91,7 +93,11 @@ where
 
     // bucket is a convenience method for figuring out the 
     // bucket for a given key
-    fn bucket(&self, key: &K) -> usize {
+    fn bucket<Q>(&self, key: &Q) -> usize
+    where
+      K: Borrow<Q>,
+      Q: Hash + Eq + ?Sized,
+    {
         let mut hasher = DefaultHasher::new();
         key.hash(&mut hasher);
         (hasher.finish() % self.buckets.len() as u64) as usize
@@ -105,20 +111,28 @@ where
         self.items == 0
     } 
 
-    pub fn get(&self, key: &K) -> Option<&V> {
+    pub fn get<Q>(&self, key: &Q) -> Option<&V>
+    where
+      K: Borrow<Q>,
+      Q: Hash + Eq + ?Sized, // ?Sized means Q can be str, which isn't sized
+    {
         self.buckets[self.bucket(key)]
           .iter()
-          .find(|&(ref ekey, _)| ekey == key)
+          .find(|&(ref ekey, _)| ekey.borrow() == key)
           .map(|&(_, ref v)| v)
     }
 
-    pub fn remove(&mut self, key: &K) -> Option<V> {
+    pub fn remove<Q>(&mut self, key: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized, // ?Sized means Q can be str, which isn't sized
+    {
         let bucket = self.bucket(key);
         let bucket = &mut self.buckets[bucket];
 
         // The ? operator with an Option return type, returns a None type immediately if false,
         // whereas with a Result return type, it returns an Err type.
-        let i = bucket.iter().position(|&(ref ekey, _)| ekey == key)?;
+        let i = bucket.iter().position(|&(ref ekey, _)| ekey.borrow() == key)?;
 
         self.items -= 1;
 
@@ -128,6 +142,65 @@ where
         // is fine if you do not need your vec to be ordered. Our buckets are not ordered here,
         // so this is fine in this case.
         Some(bucket.swap_remove(i).1)
+    }
+
+    // contains_key - checks keys and returns true or false if exists
+    pub fn contains_key<Q>(&mut self, key: &Q) -> bool
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized, // ?Sized means Q can be str, which isn't sized
+    {
+        self.get(key).is_some()
+    }
+}
+
+pub struct Iter<'a, K, V> {
+    map: &'a HashMap<K, V>,
+    bucket: usize, // Call store iterators in the buckets themselves? @todo look this up
+    at: usize,
+    // Could have a yield cound here to prevent 'over yielding'
+}
+
+impl <'a, K, V> Iterator for Iter<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+
+        // We use a loop here to act as tail call elimination
+        // the loop just iterates against a match, which increments
+        // the current bucket, and current item position.
+        loop {
+          match self.map.buckets.get(self.bucket) {
+              Some(bucket) => {
+                  match bucket.get(self.at) {
+                      Some(&(ref k, ref v)) => {
+                          self.at += 1;
+                          break Some((k, v));
+                      }
+                      None => {
+                          // We've reached the end of the bucket in this case
+                          // So we move on to the next bucket, and set the
+                          // current position to zero again.
+                          self.bucket += 1;
+                          self.at = 0;
+                          continue;
+                      }
+                  }
+              }
+
+              // No more items
+              None => break None,
+          };
+      }
+    }
+}
+
+impl<'a, K, V> IntoIterator for &'a HashMap<K, V> {
+    type Item = (&'a K, &'a V);
+    type IntoIter = Iter<'a, K, V>;
+
+    fn into_iter(self) ->  Self::IntoIter {
+        Iter { map: self, bucket: 0, at: 0 }
     }
 }
 
@@ -148,5 +221,28 @@ mod tests {
         assert_eq!(map.len(), 0);
         assert!(map.is_empty());
         assert_eq!(map.get(&"testing"), None);
+    }
+
+    #[test]
+    fn iter() {
+        let mut map = HashMap::new();
+        map.insert("a", 123);
+        map.insert("b", 1231);
+        map.insert("c", 1232);
+        map.insert("d", 12334);
+        map.insert("e", 12345);
+
+        for (&key, &value) in &map {
+            match key {
+                "a" => assert_eq!(v, 123),
+                "b" => assert_eq!(v, 1231),
+                "c" => assert_eq!(v, 1232),
+                "d" => assert_eq!(v, 12334),
+                "e" => assert_eq!(v, 12345),
+                _ => unreachable!(),
+            }
+        }
+
+        assert_eq!((&map).into_iter().count(), 5);
     }
 }
