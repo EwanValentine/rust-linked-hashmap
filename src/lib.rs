@@ -20,11 +20,93 @@ impl<K, V> HashMap<K, V> {
     }
 }
 
+pub struct OccupiedEntry<'a, K: 'a, V: 'a> {
+    entry: &'a mut (K, V),
+}
+
+
+pub struct VacantEntry<'a, K: 'a, V: 'a> {
+    key: K,
+    map: &'a mut HashMap<K, V>,
+    bucket: usize,
+}
+
+impl<'a, K: 'a, V: 'a> VacantEntry<'a, K, V> {
+    pub fn insert(self, value: V) -> &'a mut V
+    where
+        K: Hash + Eq,
+    {   
+        self.map.buckets[self.bucket].push((self.key, value));
+        self.map.items += 1;
+        &mut self.map.buckets[self.bucket].last_mut().unwrap().1
+    }
+}
+
+pub enum Entry<'a, K: 'a, V: 'a> {
+    Occupied(OccupiedEntry<'a, K, V>),
+    Vacant(VacantEntry<'a, K, V>)
+}
+
+impl<'a, K, V> Entry<'a, K, V> 
+    where
+        K: Hash + Eq,
+    {
+    pub fn or_insert(self, value: V) -> &'a mut V {
+        match self {
+            Entry::Occupied(e) => &mut e.entry.1, // .1 gets the value from a tuple
+            Entry::Vacant(e) => e.insert(value),
+        }
+    }
+
+
+    // You only construct the item `F` if it needs to be inserted,
+    // or_insert will insert whatever value you give it, so `Vec::new`
+    // you will instantiate even if the value exists, and you can't insert a new one.
+    // or_insert_with, only creates the new constructor if it doesn't exist already, 
+    // and needs to be inserted.
+    pub fn or_insert_with<F>(self, maker: F) -> &'a mut V
+    where
+        F: FnOnce() -> V
+    {
+        match self {
+            Entry::Occupied(e) => &mut e.entry.1,
+            Entry::Vacant(e) => e.insert(maker()),
+        }
+    }
+
+    pub fn or_default(self) -> &'a mut V
+    where
+        V: Default
+    {
+      self.or_insert_with(Default::default)
+    }
+}
+
 // HashMap for keys which have an equality hash check trait
 impl<K, V> HashMap<K, V> 
 where
-    K: Hash + Eq
+    K: Hash + Eq,
 {
+    pub fn entry<'a>(&'a mut self, key: K) -> Entry<'a, K, V> {
+        if self.buckets.is_empty() || self.items > 3 * self.buckets.len() / 4 {
+            self.resize();
+        }
+
+        let bucket = self.bucket(&key);
+        
+        for entry in &mut self.buckets[bucket] {
+            return Entry::Occupied(OccupiedEntry {
+                entry: unsafe { &mut *(entry as *mut _) },
+            })
+        }
+        
+        Entry::Vacant(VacantEntry {
+            key,
+            map: self,
+            bucket,
+        })
+    }
+
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
 
         // If the buckets are empty, or the items are greater than the number of buckets,
@@ -190,19 +272,76 @@ impl <'a, K, V> Iterator for Iter<'a, K, V> {
 
               // No more items
               None => break None,
-          };
-      }
+            };
+        }
     }
 }
+
 
 impl<'a, K, V> IntoIterator for &'a HashMap<K, V> {
     type Item = (&'a K, &'a V);
     type IntoIter = Iter<'a, K, V>;
-
-    fn into_iter(self) ->  Self::IntoIter {
-        Iter { map: self, bucket: 0, at: 0 }
+    fn into_iter(self) -> Self::IntoIter {
+        Iter {
+            map: self,
+            bucket: 0,
+            at: 0,
+        }
     }
 }
+
+pub struct IntoIter<K, V> {
+    map: HashMap<K, V>,
+    bucket: usize,
+}
+
+impl<K, V> Iterator for IntoIter<K, V> {
+    type Item = (K, V);
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.map.buckets.get_mut(self.bucket) {
+                Some(bucket) => match bucket.pop() {
+                    Some(x) => break Some(x),
+                    None => {
+                        self.bucket += 1;
+                        continue;
+                    }
+                },
+                None => break None,
+            }
+        }
+    }
+}
+
+
+impl<K, V> IntoIterator for HashMap<K, V> {
+    type Item = (K, V);
+    type IntoIter = IntoIter<K, V>;
+    fn into_iter(self) -> Self::IntoIter {
+        IntoIter {
+            map: self,
+            bucket: 0,
+        }
+    }
+}
+
+use std::iter::FromIterator;
+impl<K, V> FromIterator<(K, V)> for HashMap<K, V>
+where
+    K: Hash + Eq,
+{
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+    {
+        let mut map = HashMap::new();
+        for (k, v) in iter {
+            map.insert(k, v);
+        }
+        map
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

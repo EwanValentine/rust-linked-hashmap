@@ -1,5 +1,8 @@
 use linked_hashmap::HashMap;
 
+// This is the example taken from the Rust std lib hashmap implementation
+// to check against our api
+
 fn call(number: &str) -> &str {
     match number {
         "798-1364" => "We're sorry, the call cannot be completed as dialed. 
@@ -37,10 +40,7 @@ fn main() {
 
     // `HashMap::iter()` returns an iterator that yields 
     // (&'a key, &'a value) pairs in arbitrary order.
-    //
-    // @todo - also need to support `iter` here as well to be valid
-    // against the standard lib example
-    for (contact, &number) in contacts.into_iter() {
+    for (contact, number) in contacts.into_iter() {
         println!("Calling {}: {}", contact, call(number)); 
     }
 }
